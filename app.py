@@ -78,8 +78,7 @@ def generate_title(summary):
     try:
         prompt = (
             "Génère un titre journalistique en français (max 100 caractères), accrocheur et clair, "
-            "pour une brève de football basée sur le texte suivant :\n"
-            f"{summary}\n"
+            f"pour une brève de football basée sur le texte suivant :\n{summary}\n"
             "Pas de nom de site, pas de source, pas de lien. En français uniquement."
         )
         response = openai.ChatCompletion.create(
@@ -93,14 +92,14 @@ def generate_title(summary):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print("Erreur lors de la génération du titre :", e)
-        return "Titre non disponible"
+        print("❌ Erreur lors de la génération du titre :", e)
+        return None
 
 
 def generate_breve(title, summary):
     try:
         prompt = (
-            "Écris une brève de football de 380 à 420 caractères, en bon français, à partir du résumé suivant :\n"
+            "Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant :\n"
             f"{summary}\n"
             "La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
         )
@@ -115,20 +114,24 @@ def generate_breve(title, summary):
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print("Erreur IA:", e)
+        print("❌ Erreur IA :", e)
         return None
 
 
 def fetch_articles():
     articles = []
     for url in feeds:
-        feed = feedparser.parse(url)
-        for entry in feed.entries:
-            title = entry.get("title", "")
-            summary = entry.get("summary", "")
-            if len(summary) > 100 and (title, summary) not in cache_articles:
-                cache_articles.add((title, summary))
-                articles.append((title, summary))
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                title = entry.get("title", "")
+                summary = entry.get("summary", "")
+                if summary and (title, summary) not in cache_articles:
+                    cache_articles.add((title, summary))
+                    articles.append((title, summary))
+        except Exception as e:
+            print(f"❌ Erreur feed {url} :", e)
+    print(f"📄 {len(articles)} articles récupérés")
     return articles
 
 
@@ -141,9 +144,12 @@ def generate_breves():
     for title, summary in articles:
         if count >= 15:
             break
+        print(f"🔎 Article sélectionné : {title[:60]}...")
         category = detect_category(title, summary)
+        print(f"🏷️ Catégorie : {category}")
         content = generate_breve(title, summary)
         titre_fr = generate_title(summary)
+        print(f"🇫🇷 Titre traduit : {titre_fr}")
         if content and titre_fr:
             breves.append({
                 "title": titre_fr,
@@ -152,8 +158,12 @@ def generate_breves():
                 "date": datetime.now().isoformat(" "),
                 "views": random.randint(10000, 120000)
             })
+            print(f"✅ Brève ajoutée ({count + 1}/15)")
             count += 1
             time.sleep(1)
+        else:
+            print("⚠️ Brève ignorée (échec génération)")
+    print(f"📢 {len(breves)} brèves générées")
 
 
 def scheduler():
