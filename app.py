@@ -57,43 +57,27 @@ feeds = [
 
 categories = ["Ligue 1", "Liga", "Serie A", "Premier League", "Monde"]
 
-clubs = {
-    "Ligue 1": [
-        "psg", "paris", "marseille", "om", "lyon", "nice", "monaco", "lens", "lille", "rennes", "nantes", "reims", "strasbourg",
-        "montpellier", "toulouse", "clermont", "metz", "le havre", "auxerre", "angers", "lorient", "brest"
-    ],
-    "Liga": [
-        "barcelone", "real madrid", "atletico", "sevilla", "betis", "valence", "villarreal", "société", "osasuna", "celta",
-        "cadix", "mallorca", "granada", "getafe", "alaves", "las palmas", "almeria", "rayo", "girona"
-    ],
-    "Serie A": [
-        "napoli", "juventus", "inter", "milan", "roma", "lazio", "atalanta", "fiorentina", "bologna", "torino", "udinese",
-        "lecce", "genoa", "sassuolo", "verona", "empoli", "salernitana", "monza"
-    ],
-    "Premier League": [
-        "chelsea", "arsenal", "manchester united", "man united", "man city", "liverpool", "tottenham", "newcastle",
-        "aston villa", "west ham", "everton", "brighton", "fulham", "brentford", "wolves", "bournemouth",
-        "nottingham", "luton", "sheffield", "burnley"
-    ]
-}
-
+breves = []
 
 def detect_category(title, summary):
     content = f"{title.lower()} {summary.lower()}"
-    for cat, keywords in clubs.items():
-        if any(kw in content for kw in keywords):
-            return cat
+    if any(x in content for x in ["psg", "lens", "ligue 1", "marseille", "rennes", "nantes", "monaco", "strasbourg", "lorient", "clermont", "reims", "toulouse", "le havre", "metz", "brest", "montpellier", "nice", "lyon"]):
+        return "Ligue 1"
+    if any(x in content for x in ["barcelone", "madrid", "liga", "atletico", "real", "espagne", "sevilla", "valence", "bilbao", "villarreal", "betis", "celta", "osasuna", "getafe", "mallorca", "almeria", "cadiz", "granada"]):
+        return "Liga"
+    if any(x in content for x in ["napoli", "milan", "inter", "serie a", "italie", "juventus", "roma", "lazio", "atalanta", "fiorentina", "bologne", "lecce", "torino", "genoa", "sassuolo", "cagliari", "udinese", "verone", "empoli"]):
+        return "Serie A"
+    if any(x in content for x in ["chelsea", "manchester", "arsenal", "liverpool", "premier league", "angleterre", "tottenham", "newcastle", "everton", "west ham", "aston villa", "crystal palace", "bournemouth", "brentford", "fulham", "wolves", "burnley", "luton", "nottingham"]):
+        return "Premier League"
     return "Monde"
-
 
 def generate_breve(title, summary):
     try:
         prompt = (
-            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant :\n"
+            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant : \n"
             f"{summary}\n"
             f"La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
         )
-
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -103,13 +87,10 @@ def generate_breve(title, summary):
             max_tokens=220,
             temperature=0.7,
         )
-
-        content = response.choices[0].message.content.strip()
-        return content
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print("Erreur IA: ", e)
+        print("Erreur IA:", e)
         return None
-
 
 def fetch_articles():
     articles = []
@@ -121,10 +102,6 @@ def fetch_articles():
             if len(summary) > 100:
                 articles.append((title, summary))
     return articles
-
-
-breves = []
-
 
 def generate_breves():
     global breves
@@ -142,29 +119,26 @@ def generate_breves():
                 "title": title.strip(),
                 "content": content,
                 "category": category,
-                "date": datetime.now().isoformat(" ")
+                "date": datetime.now().isoformat(" "),
+                "views": random.randint(10000, 120000)  # compteur de vues simulé
             })
             count += 1
             time.sleep(1)
-
 
 def scheduler():
     while True:
         print("\U0001F501 Génération automatique des brèves")
         generate_breves()
-        time.sleep(20 * 60)  # 20 minutes
-
+        time.sleep(20 * 60)
 
 @app.route("/api/breves")
 def get_breves():
     return jsonify(breves)
 
-
 @app.route("/api/generer")
 def force_generate():
     threading.Thread(target=generate_breves).start()
     return jsonify({"ok": True, "nb": len(breves)})
-
 
 if __name__ == "__main__":
     threading.Thread(target=scheduler, daemon=True).start()
