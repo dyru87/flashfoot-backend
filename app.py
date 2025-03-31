@@ -77,11 +77,10 @@ def detect_category(title, summary):
 def generate_title(summary):
     try:
         prompt = (
-            f"Génère un titre journalistique en français (max 100 caractères), accrocheur et clair, "
-            f"pour une brève de football basée sur le texte suivant :
-{summary}
-"
-            f"Pas de nom de site, pas de source, pas de lien. En français uniquement."
+            "Génère un titre journalistique en français (max 100 caractères), accrocheur et clair, "
+            "pour une brève de football basée sur le texte suivant :\n"
+            f"{summary}\n"
+            "Pas de nom de site, pas de source, pas de lien. En français uniquement."
         )
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -101,11 +100,9 @@ def generate_title(summary):
 def generate_breve(title, summary):
     try:
         prompt = (
-            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant : 
-"
-            f"{summary}
-"
-            f"La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
+            "Écris une brève de football de 380 à 420 caractères, en bon français, à partir du résumé suivant :\n"
+            f"{summary}\n"
+            "La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
         )
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
