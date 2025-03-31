@@ -1,150 +1,156 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from datetime import datetime
 import feedparser
-import json
+import openai
 import os
+from datetime import datetime
+import random
 import time
 import threading
-import openai
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-BREVES_FILE = "breves.json"
-
-RSS_FEEDS = [
+# Liste des flux RSS pour chaque pays
+feeds = [
     # France
     "https://www.lequipe.fr/rss/actu_rss_Football.xml",
     "https://www.footmercato.net/rss",
-    "https://www.football.fr/feed",
     "https://www.butfootballclub.fr/rss.xml",
+    "https://www.foot01.com/rss",
     "https://www.les-transferts.com/feed",
-    "https://www.topmercato.com/feed",
-    "https://www.dailymercato.com/rss",
-    "https://www.onzemondial.com/rss",
-    "https://www.foot-sur7.fr/feed",
-
     # Espagne
-    "https://as.com/rss/futbol/",
-    "https://www.marca.com/en/rss.xml",
-    "https://www.sport.es/rss",
-    "https://www.real-france.fr/feed/",
-
+    "https://www.realmadridnews.com/feed/",
+    "https://www.fcbarcelonanoticias.com/rss",
+    "https://www.mundodeportivo.com/rss/futbol",
+    "https://www.sport.es/rss/futbol.xml",
+    "https://as.com/rss/tags/futbol/primera_division/a.xml",
     # Italie
-    "https://www.tuttosport.com/rss/calcio.xml",
-    "https://www.juventus-fr.com/feed/",
-
+    "https://www.calciomercato.com/rss",
+    "https://www.tuttomercatoweb.com/rss",
+    "https://www.football-italia.net/rss.xml",
+    "https://www.juventusnews24.com/feed/",
+    "https://www.gazzetta.it/rss/home.xml",
+    "https://www.romapress.net/feed/",
+    "https://sempremilan.com/feed",
+    "https://www.lalaziosiamonoi.it/rss.xml",
+    "https://www.inter-news.it/feed/",
+    "https://napolipiu.com/feed",
     # Angleterre
-    "https://www.dailymail.co.uk/sport/index.rss",
-    "https://www.90min.com/rss",
-
+    "https://www.chelseafc.com/en/news/latest-news.rss",
+    "https://www.arsenal.com/rss-feeds/news",
+    "https://www.manchestereveningnews.co.uk/all-about/manchester-united-fc/?service=rss",
+    "https://www.liverpoolfc.com/news/rss-feeds",
+    "https://www.mirror.co.uk/sport/football/rss.xml",
     # Monde
-    "https://rmcsport.bfmtv.com/rss/football/",
-    "https://www.abola.pt/rss",
-    "https://www.fabrizioromano.com/feed/",
-    "https://www.tntsports.co.uk/rss.xml",
-    "https://www.football365.fr/feed/rss"
+    "https://www.fifa.com/rss-feeds/news",
+    "https://www.goal.com/feeds/en/news",
+    "https://www.espn.com/espn/rss/soccer/news",
+    "https://www.si.com/rss/si_soccer.rss",
+    "https://www.skysports.com/rss/12040"
 ]
 
-CATEGORIES = {
-    "france": "Ligue 1",
-    "espagne": "Liga",
-    "italie": "Serie A",
-    "angleterre": "PL",
-    "monde": "Monde"
+# Liste complète des clubs de première division par pays
+clubs_par_pays = {
+    "Ligue 1": [
+        "Angers", "Auxerre", "Brest", "Le Havre", "Lens", "Lille", "Lyon",
+        "Marseille", "Monaco", "Montpellier", "Nantes", "Nice", "Paris SG",
+        "Reims", "Rennes", "Saint-Étienne", "Strasbourg", "Toulouse"
+    ],
+    "Liga": [
+        "Alavés", "Athletic Bilbao", "Atlético Madrid", "Barcelone", "Betis",
+        "Celta Vigo", "Espanyol", "FC Séville", "Getafe", "Girona", "Las Palmas",
+        "Leganés", "Mallorca", "Osasuna", "Rayo", "Real Madrid", "Real Sociedad",
+        "Real Valladolid", "Valence", "Villarreal"
+    ],
+    "Serie A": [
+        "Atalanta", "Bologne", "Cagliari", "Empoli", "Fiorentina", "Genoa",
+        "Hellas Vérone", "Inter Milan", "Juventus", "Lazio", "Lecce", "Milan AC",
+        "Naples", "Parme", "Roma", "Salernitana", "Sampdoria", "Sassuolo",
+        "Spezia", "Torino", "Udinese", "Venise"
+    ],
+    "Premier League": [
+        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton",
+        "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich Town",
+        "Leicester", "Liverpool", "Manchester City", "Manchester United",
+        "Newcastle", "Nottingham Forest", "Southampton", "Tottenham",
+        "West Ham", "Wolverhampton"
+    ]
 }
 
-def get_category_from_url(url):
-    for keyword, category in CATEGORIES.items():
-        if keyword in url:
+# Fonction pour détecter la catégorie d'un article en fonction de son titre et de son résumé
+def detect_category(title, summary):
+    content = f"{title.lower()} {summary.lower()}"
+    for category, clubs in clubs_par_pays.items():
+        if any(club.lower() in content for club in clubs):
             return category
     return "Monde"
 
-def generate_brief(title, summary):
-    prompt = f"Rédige une brève d’environ 350 caractères, espaces compris, dans un style journalistique, basée sur ce titre et ce résumé :\nTitre : {title}\nRésumé : {summary}"
+# Fonction pour générer une brève à partir du titre et du résumé d'un article
+def generate_breve(title, summary):
     try:
+        prompt = (
+            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant : \n"
+            f"{summary}\n"
+            f"La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
+        )
+
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Tu es un journaliste sportif."},
+                {"role": "system", "content": "Tu es un journaliste sportif français."},
                 {"role": "user", "content": prompt}
             ],
+            max_tokens=220,
             temperature=0.7,
-            max_tokens=300
         )
-        texte = response.choices[0].message.content.strip()
-        if 300 <= len(texte) <= 400:
-            return texte
-        else:
-            return None
+
+        content = response.choices[0].message.content.strip()
+        return content
     except Exception as e:
-        print("Erreur IA:", e)
+        print("Erreur IA: ", e)
         return None
 
-def load_breves():
-    if os.path.exists(BREVES_FILE):
-        with open(BREVES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-def save_breves(breves):
-    with open(BREVES_FILE, "w", encoding="utf-8") as f:
-        json.dump(breves, f, ensure_ascii=False, indent=2)
-
-def generate_breves_from_rss(limit=15):
-    breves = load_breves()
-    titles_seen = {b["title"] for b in breves}
-    nouvelles_breves = []
-
-    for url in RSS_FEEDS:
+# Fonction pour récupérer les articles depuis les flux RSS
+def fetch_articles():
+    articles = []
+    for url in feeds:
         feed = feedparser.parse(url)
-        category = get_category_from_url(url)
         for entry in feed.entries:
-            if len(nouvelles_breves) >= limit:
-                break
-            if entry.title in titles_seen:
-                continue
-            content = generate_brief(entry.title, entry.summary)
-            if content:
-                nouvelle = {
-                    "title": entry.title,
-                    "content": content,
-                    "date": str(datetime.utcnow()),
-                    "category": category
-                }
-                nouvelles_breves.append(nouvelle)
-                titles_seen.add(entry.title)
+            title = entry.get("title", "")
+            summary = entry.get("summary", "")
+            if len(summary) > 100:
+                articles.append((title, summary))
+    return articles
 
-    if nouvelles_breves:
-        breves = nouvelles_breves + breves
-        save_breves(breves)
-    return len(nouvelles_breves)
+# Fonction pour générer les brèves
+def generate_breves():
+    global breves
+    breves = []
+    articles = fetch_articles()
+    random.shuffle(articles)
+    count = 0
+    for title, summary in articles:
+        if count >= 15:
+            break
+        category = detect_category(title, summary)
+        content = generate_breve(title, summary)
+        if content:
+            breves.append({
+                "title": title.strip(),
+                "content": content,
+                "category": category,
+                "date": datetime.now().isoformat(" ")
+            })
+            count += 1
+            time.sleep(1)
 
-@app.route("/api/breves")
-def api_breves():
-    return jsonify(load_breves())
-
-@app.route("/api/generer")
-def api_generer():
-    nb = generate_breves_from_rss()
-    return jsonify({"ok": True, "nb": nb})
-
-def start_scheduler():
-    def job():
-        while True:
-            print("🔁 Génération automatique des brèves")
-            generate_breves_from_rss()
-            time.sleep(1200)
-
-    threading.Thread(target=job, daemon=True).start()
-
-start_scheduler()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+# Fonction pour planifier la génération automatique des brèves toutes les 20 minutes
+def scheduler():
+    while True:
+        print("\U0001F501 Génération automatique des brèves")
+        generate
+::contentReference[oaicite:0]{index=0}
+ 
