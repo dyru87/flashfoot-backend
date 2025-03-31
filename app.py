@@ -4,14 +4,17 @@ import os
 import openai
 import feedparser
 from datetime import datetime
+import threading
+import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-# Configuration OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Met ta vraie clé dans une variable d'environnement
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Liste des flux RSS 
 RSS_FEEDS = [
     "https://www.topmercato.com/feed/",
     "https://www.footmercato.net/rss",
@@ -20,7 +23,6 @@ RSS_FEEDS = [
     "https://www.butfootballclub.fr/rss"
 ]
 
-# Catégories par mots-clés
 CATEGORIES = {
     "Ligue 1": ["PSG", "OM", "OL", "Monaco", "Lens", "Rennes", "Toulouse"],
     "Liga": ["Barcelone", "Real Madrid", "Atletico", "Seville"],
@@ -29,31 +31,26 @@ CATEGORIES = {
     "Monde": []
 }
 
-# Stock temporaire en mémoire (peut être remplacé par SQLite ensuite)
 breves_stock = []
-
 
 @app.route("/api/breves")
 def get_breves():
     return jsonify(breves_stock)
 
+def fetch_and_generate_breves():
+    print("🛠️ Génération automatique des brèves")
+    try:
+        breves_stock.clear()
+        articles = []
 
-@app.route("/api/generer", methods=["POST"])
-def generer_breves():
-    breves_stock.clear()
-    articles = []
+        for url in RSS_FEEDS:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                articles.append({"title": entry.title, "content": entry.get("summary", "")})
 
-    # Récupération des articles depuis RSS
-    for url in RSS_FEEDS:
-        feed = feedparser.parse(url)
-        for entry in feed.entries:
-            articles.append({"title": entry.title, "content": entry.get("summary", "")})
+        articles = articles[:30]
 
-    # Garde les 15 premiers articles valides
-    articles = articles[:30]
-
-    for art in articles:
-        try:
+        for art in articles:
             titre = art["title"]
             contenu = art["content"]
 
@@ -69,14 +66,12 @@ Format de réponse :\n{{\n  \"title\": \"...\",\n  \"content\": \"...\"\n}}
 
             texte = response.choices[0].message.content.strip()
             if texte.startswith("{"):
-                # Catégorie
                 cat = "Monde"
                 for nom, mots in CATEGORIES.items():
                     if any(mot.lower() in titre.lower() for mot in mots):
                         cat = nom
                         break
 
-                # Ajout
                 breve = eval(texte)
                 breve["category"] = cat
                 breve["date"] = datetime.now().isoformat()
@@ -84,11 +79,18 @@ Format de réponse :\n{{\n  \"title\": \"...\",\n  \"content\": \"...\"\n}}
 
                 if len(breves_stock) >= 15:
                     break
-        except Exception as e:
-            print("Erreur IA:", e)
+        print("✅ Brèves générées automatiquement")
+    except Exception as e:
+        print("❌ Erreur auto-génération :", e)
 
-    return jsonify({"ok": True, "nb": len(breves_stock)})
+# Thread qui exécute fetch_and_generate_breves toutes les 20 minutes
+def loop_generer_breves():
+    while True:
+        fetch_and_generate_breves()
+        time.sleep(20 * 60)
 
+# Lancer le thread au démarrage du serveur
+threading.Thread(target=loop_generer_breves, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
