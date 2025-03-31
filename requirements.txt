@@ -2,3 +2,5 @@ Flask
 openai
 feedparser
 python-dotenv
+flask-cors
+
