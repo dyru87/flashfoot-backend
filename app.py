@@ -13,7 +13,6 @@ CORS(app)
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Liste des flux RSS pour chaque pays
 feeds = [
     # France
     "https://www.lequipe.fr/rss/actu_rss_Football.xml",
@@ -21,12 +20,14 @@ feeds = [
     "https://www.butfootballclub.fr/rss.xml",
     "https://www.foot01.com/rss",
     "https://www.les-transferts.com/feed",
+
     # Espagne
     "https://www.realmadridnews.com/feed/",
     "https://www.fcbarcelonanoticias.com/rss",
     "https://www.mundodeportivo.com/rss/futbol",
     "https://www.sport.es/rss/futbol.xml",
     "https://as.com/rss/tags/futbol/primera_division/a.xml",
+
     # Italie
     "https://www.calciomercato.com/rss",
     "https://www.tuttomercatoweb.com/rss",
@@ -38,12 +39,14 @@ feeds = [
     "https://www.lalaziosiamonoi.it/rss.xml",
     "https://www.inter-news.it/feed/",
     "https://napolipiu.com/feed",
+
     # Angleterre
     "https://www.chelseafc.com/en/news/latest-news.rss",
     "https://www.arsenal.com/rss-feeds/news",
     "https://www.manchestereveningnews.co.uk/all-about/manchester-united-fc/?service=rss",
     "https://www.liverpoolfc.com/news/rss-feeds",
     "https://www.mirror.co.uk/sport/football/rss.xml",
+
     # Monde
     "https://www.fifa.com/rss-feeds/news",
     "https://www.goal.com/feeds/en/news",
@@ -52,47 +55,41 @@ feeds = [
     "https://www.skysports.com/rss/12040"
 ]
 
-# Liste complète des clubs de première division par pays
-clubs_par_pays = {
+categories = ["Ligue 1", "Liga", "Serie A", "Premier League", "Monde"]
+
+clubs = {
     "Ligue 1": [
-        "Angers", "Auxerre", "Brest", "Le Havre", "Lens", "Lille", "Lyon",
-        "Marseille", "Monaco", "Montpellier", "Nantes", "Nice", "Paris SG",
-        "Reims", "Rennes", "Saint-Étienne", "Strasbourg", "Toulouse"
+        "psg", "paris", "marseille", "om", "lyon", "nice", "monaco", "lens", "lille", "rennes", "nantes", "reims", "strasbourg",
+        "montpellier", "toulouse", "clermont", "metz", "le havre", "auxerre", "angers", "lorient", "brest"
     ],
     "Liga": [
-        "Alavés", "Athletic Bilbao", "Atlético Madrid", "Barcelone", "Betis",
-        "Celta Vigo", "Espanyol", "FC Séville", "Getafe", "Girona", "Las Palmas",
-        "Leganés", "Mallorca", "Osasuna", "Rayo", "Real Madrid", "Real Sociedad",
-        "Real Valladolid", "Valence", "Villarreal"
+        "barcelone", "real madrid", "atletico", "sevilla", "betis", "valence", "villarreal", "société", "osasuna", "celta",
+        "cadix", "mallorca", "granada", "getafe", "alaves", "las palmas", "almeria", "rayo", "girona"
     ],
     "Serie A": [
-        "Atalanta", "Bologne", "Cagliari", "Empoli", "Fiorentina", "Genoa",
-        "Hellas Vérone", "Inter Milan", "Juventus", "Lazio", "Lecce", "Milan AC",
-        "Naples", "Parme", "Roma", "Salernitana", "Sampdoria", "Sassuolo",
-        "Spezia", "Torino", "Udinese", "Venise"
+        "napoli", "juventus", "inter", "milan", "roma", "lazio", "atalanta", "fiorentina", "bologna", "torino", "udinese",
+        "lecce", "genoa", "sassuolo", "verona", "empoli", "salernitana", "monza"
     ],
     "Premier League": [
-        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton",
-        "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich Town",
-        "Leicester", "Liverpool", "Manchester City", "Manchester United",
-        "Newcastle", "Nottingham Forest", "Southampton", "Tottenham",
-        "West Ham", "Wolverhampton"
+        "chelsea", "arsenal", "manchester united", "man united", "man city", "liverpool", "tottenham", "newcastle",
+        "aston villa", "west ham", "everton", "brighton", "fulham", "brentford", "wolves", "bournemouth",
+        "nottingham", "luton", "sheffield", "burnley"
     ]
 }
 
-# Fonction pour détecter la catégorie d'un article en fonction de son titre et de son résumé
+
 def detect_category(title, summary):
     content = f"{title.lower()} {summary.lower()}"
-    for category, clubs in clubs_par_pays.items():
-        if any(club.lower() in content for club in clubs):
-            return category
+    for cat, keywords in clubs.items():
+        if any(kw in content for kw in keywords):
+            return cat
     return "Monde"
 
-# Fonction pour générer une brève à partir du titre et du résumé d'un article
+
 def generate_breve(title, summary):
     try:
         prompt = (
-            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant : \n"
+            f"Écris une brève de football de 300 à 400 caractères, en bon français, à partir du résumé suivant :\n"
             f"{summary}\n"
             f"La brève doit être concise, précise, informative, sans phrases inutiles. Pas de source, pas de lien, pas de site."
         )
@@ -113,7 +110,7 @@ def generate_breve(title, summary):
         print("Erreur IA: ", e)
         return None
 
-# Fonction pour récupérer les articles depuis les flux RSS
+
 def fetch_articles():
     articles = []
     for url in feeds:
@@ -125,7 +122,10 @@ def fetch_articles():
                 articles.append((title, summary))
     return articles
 
-# Fonction pour générer les brèves
+
+breves = []
+
+
 def generate_breves():
     global breves
     breves = []
@@ -147,10 +147,25 @@ def generate_breves():
             count += 1
             time.sleep(1)
 
-# Fonction pour planifier la génération automatique des brèves toutes les 20 minutes
+
 def scheduler():
     while True:
         print("\U0001F501 Génération automatique des brèves")
-        generate
-::contentReference[oaicite:0]{index=0}
- 
+        generate_breves()
+        time.sleep(20 * 60)  # 20 minutes
+
+
+@app.route("/api/breves")
+def get_breves():
+    return jsonify(breves)
+
+
+@app.route("/api/generer")
+def force_generate():
+    threading.Thread(target=generate_breves).start()
+    return jsonify({"ok": True, "nb": len(breves)})
+
+
+if __name__ == "__main__":
+    threading.Thread(target=scheduler, daemon=True).start()
+    app.run(debug=False, host="0.0.0.0")
