@@ -1,121 +1,150 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-import os
-import openai
-import feedparser
 from datetime import datetime
-import threading
+import feedparser
+import json
+import os
 import time
+import threading
+import openai
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-# Configuration OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ✅ Liste complète des flux RSS
+BREVES_FILE = "breves.json"
+
 RSS_FEEDS = [
-    "https://www.topmercato.com/feed/",
-    "https://www.footmercato.net/rss",
-    "https://www.football.fr/feed/rss",
-    "https://www.dailymercato.com/rss",
-    "https://www.butfootballclub.fr/rss",
+    # France
     "https://www.lequipe.fr/rss/actu_rss_Football.xml",
-    "https://rmcsport.bfmtv.com/rss/football/",
-    "https://www.onzemondial.com/rss",
-    "https://www.juventus-fr.com/feed/",
+    "https://www.footmercato.net/rss",
+    "https://www.football.fr/feed",
+    "https://www.butfootballclub.fr/rss.xml",
     "https://www.les-transferts.com/feed",
-    "https://www.sport.fr/feed",
-    "https://www.90min.com/fr/rss",
-    "https://www.real-france.fr/feed/",
-    "https://www.marca.com/rss/futbol/primera-division.xml",
+    "https://www.topmercato.com/feed",
+    "https://www.dailymercato.com/rss",
+    "https://www.onzemondial.com/rss",
+    "https://www.foot-sur7.fr/feed",
+
+    # Espagne
     "https://as.com/rss/futbol/",
-    "https://www.sport.es/rss/",
-    "https://www.dailymail.co.uk/sport/football/index.rss",
-    "https://www.tuttosport.com/rss/calcio",
+    "https://www.marca.com/en/rss.xml",
+    "https://www.sport.es/rss",
+    "https://www.real-france.fr/feed/",
+
+    # Italie
+    "https://www.tuttosport.com/rss/calcio.xml",
+    "https://www.juventus-fr.com/feed/",
+
+    # Angleterre
+    "https://www.dailymail.co.uk/sport/index.rss",
+    "https://www.90min.com/rss",
+
+    # Monde
+    "https://rmcsport.bfmtv.com/rss/football/",
     "https://www.abola.pt/rss",
-    "https://fabrizioromano.substack.com/feed"
+    "https://www.fabrizioromano.com/feed/",
+    "https://www.tntsports.co.uk/rss.xml",
+    "https://www.football365.fr/feed/rss"
 ]
 
-# 🏷️ Catégories de clubs
 CATEGORIES = {
-    "Ligue 1": ["PSG", "OM", "Marseille", "OL", "Lyon", "Monaco", "Lens", "Rennes", "Toulouse", "Nice", "Nantes", "Strasbourg", "Reims"],
-    "Liga": ["Barcelone", "Barça", "Real Madrid", "Atletico", "Seville", "Villarreal", "Valence", "La Liga"],
-    "Serie A": ["Juventus", "Milan", "Naples", "Inter", "Roma", "Lazio", "Serie A"],
-    "Premier League": ["Manchester", "Arsenal", "Chelsea", "Liverpool", "Tottenham", "West Ham", "Newcastle", "Premier League"],
-    "Monde": []
+    "france": "Ligue 1",
+    "espagne": "Liga",
+    "italie": "Serie A",
+    "angleterre": "PL",
+    "monde": "Monde"
 }
 
-# Stock en mémoire (à remplacer par base de données si besoin)
-breves_stock = []
+def get_category_from_url(url):
+    for keyword, category in CATEGORIES.items():
+        if keyword in url:
+            return category
+    return "Monde"
 
-@app.route("/api/breves")
-def get_breves():
-    return jsonify(breves_stock)
+def generate_brief(title, summary):
+    prompt = f"Rédige une brève d’environ 350 caractères, espaces compris, dans un style journalistique, basée sur ce titre et ce résumé :\nTitre : {title}\nRésumé : {summary}"
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Tu es un journaliste sportif."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=300
+        )
+        texte = response.choices[0].message.content.strip()
+        if 300 <= len(texte) <= 400:
+            return texte
+        else:
+            return None
+    except Exception as e:
+        print("Erreur IA:", e)
+        return None
 
-@app.route("/api/generer", methods=["GET"])
-def generer_breves():
-    print("🛠️ Génération manuelle déclenchée")
-    return jsonify({"ok": True, "nb": generer_briefs_internes()})
+def load_breves():
+    if os.path.exists(BREVES_FILE):
+        with open(BREVES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
 
-def generer_briefs_internes():
-    breves_stock.clear()
-    articles = []
+def save_breves(breves):
+    with open(BREVES_FILE, "w", encoding="utf-8") as f:
+        json.dump(breves, f, ensure_ascii=False, indent=2)
+
+def generate_breves_from_rss(limit=15):
+    breves = load_breves()
+    titles_seen = {b["title"] for b in breves}
+    nouvelles_breves = []
 
     for url in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries:
-                title = entry.title
-                content = entry.get("summary", "")
-                if len(title) > 10 and len(content) > 20:
-                    articles.append({"title": title, "content": content})
-        except Exception as e:
-            print("⚠️ Erreur RSS:", e)
+        feed = feedparser.parse(url)
+        category = get_category_from_url(url)
+        for entry in feed.entries:
+            if len(nouvelles_breves) >= limit:
+                break
+            if entry.title in titles_seen:
+                continue
+            content = generate_brief(entry.title, entry.summary)
+            if content:
+                nouvelle = {
+                    "title": entry.title,
+                    "content": content,
+                    "date": str(datetime.utcnow()),
+                    "category": category
+                }
+                nouvelles_breves.append(nouvelle)
+                titles_seen.add(entry.title)
 
-    articles = articles[:30]
-    for art in articles:
-        try:
-            titre = art["title"]
-            contenu = art["content"]
-            prompt = f"""
-Résume cet article en 400 caractères max dans un style journalistique, sans mention de lien ou site :
-Titre : {titre}
-Contenu : {contenu}
+    if nouvelles_breves:
+        breves = nouvelles_breves + breves
+        save_breves(breves)
+    return len(nouvelles_breves)
 
-Réponds au format JSON : 
-{{"title": "...", "content": "..."}}
-"""
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            )
-            texte = response.choices[0].message.content.strip()
-            if texte.startswith("{"):
-                cat = "Monde"
-                for nom, mots in CATEGORIES.items():
-                    if any(mot.lower() in titre.lower() for mot in mots):
-                        cat = nom
-                        break
-                breve = eval(texte)
-                breve["category"] = cat
-                breve["date"] = datetime.now().isoformat()
-                breves_stock.append(breve)
-                if len(breves_stock) >= 15:
-                    break
-        except Exception as e:
-            print("Erreur IA:", e)
-    print(f"✅ {len(breves_stock)} brèves générées.")
-    return len(breves_stock)
+@app.route("/api/breves")
+def api_breves():
+    return jsonify(load_breves())
 
-# 🔁 Génération automatique toutes les 20 minutes
-def boucle_generation():
-    while True:
-        print("🔁 Génération automatique des brèves")
-        generer_briefs_internes()
-        time.sleep(1200)  # 20 minutes
+@app.route("/api/generer")
+def api_generer():
+    nb = generate_breves_from_rss()
+    return jsonify({"ok": True, "nb": nb})
+
+def start_scheduler():
+    def job():
+        while True:
+            print("🔁 Génération automatique des brèves")
+            generate_breves_from_rss()
+            time.sleep(1200)
+
+    threading.Thread(target=job, daemon=True).start()
+
+start_scheduler()
 
 if __name__ == "__main__":
-    threading.Thread(target=boucle_generation, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
